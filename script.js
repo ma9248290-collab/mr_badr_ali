@@ -932,7 +932,7 @@ window.processStudentSaving = async function(keepOpen) {
     if(typeof addSystemLog === "function") addSystemLog("إضافة طالب 🎓", `تسجيل الطالب: ${name} (كود: ${code}) في ${group}`);
 
     // إرسال الواتساب
-    const portalLink = `Badr Alihttps://ma9248290-collab.github.io/mr_badr_ali/parent.html`;
+    const portalLink = `https://ma9248290-collab.github.io/mr_badr_ali/parent.html`;
     const teacherName = localStorage.getItem("teacherName") || "Sami Samir";
     const centerName = localStorage.getItem("centerName") || "هيستوريا";
 
@@ -2812,7 +2812,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function updateParentLinkUI() {
     const linkInput = document.getElementById("parentPortalLink");
     if (linkInput) {
-        linkInput.value = "Badr Alihttps://ma9248290-collab.github.io/mr_badr_ali/parent";
+        linkInput.value = "https://ma9248290-collab.github.io/mr_badr_ali/parent";
     }
 }
 
@@ -6458,7 +6458,7 @@ window.confirmApproveRequest = async function() {
         await fetch(`https://new-0-2b6c6-default-rtdb.europe-west1.firebasedatabase.app/${localStorage.getItem("licenseKey")}/join_requests/${id}.json`, { method: 'DELETE' });
 
         // إرسال رسالة واتساب للطالب (ولو مش كاتب رقمه هيبعت لولي الأمر احتياطي)
-        let portalLink = `Badr Alihttps://ma9248290-collab.github.io/mr_badr_ali/parent.html`;
+        let portalLink = `https://ma9248290-collab.github.io/mr_badr_ali/parent.html`;
         let waMsg = `🎉 *تمت الموافقة على طلب الانضمام*\nأهلاً بك في نظام ${localStorage.getItem("teacherName") || "السنتر"}.\n\n👤 *اسم الطالب:* ${newStudent.name}\n📚 *المجموعة:* ${newStudent.group}\n🔑 *كود الدخول الخاص بك:* ${newCode}\n\n🔗 *رابط منصة الطالب:* ${portalLink}`;
         
         if (typeof sendAutoWhatsApp === "function") {
