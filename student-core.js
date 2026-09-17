@@ -2,7 +2,7 @@
        // ==========================================
         // ⚙️ المتغيرات الأساسية ودوال التنقل بين الشاشات
         // ==========================================
-        let globalTeacherId = "alqaisar_System"; // 🔒 التثبيت هنا
+        let globalTeacherId = "AlQaisar_System"; // 🔒 التثبيت هنا
         let currentStudent = null;
         let allOnlineExams = [];
         let currentExam = null;
@@ -329,7 +329,7 @@
         }
 
         async function submitRegistration() {
-            globalTeacherId = "alqaisar_System";
+            globalTeacherId = "AlQaisar_System";
             let type = document.getElementById("regType").value;
             
             let genderInput = document.getElementById("regGender");
@@ -467,7 +467,7 @@
             msgEl.style.display = "none";
 
             try {
-                let globalTeacherId = "alqaisar_System";
+                let globalTeacherId = "AlQaisar_System";
                 let res = await fetch(`https://el-senior-system-default-rtdb.europe-west1.firebasedatabase.app/${globalTeacherId}/data/students.json`);
                 let studentsArray = await res.json() || [];
                 studentsArray = Array.isArray(studentsArray) ? studentsArray : Object.values(studentsArray).filter(s => s !== null);
