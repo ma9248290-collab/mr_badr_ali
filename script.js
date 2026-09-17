@@ -7500,3 +7500,49 @@ window.renderAttendanceTable = function(session) {
         }
     }
 };
+
+
+
+
+// دالة المزامنة لرفع الداتا من المتصفح للفايربيز
+window.syncDataToBot = async function() {
+    window.isIncomingSync = true;
+    try {
+        const dataToSync = {
+            students: JSON.parse(localStorage.getItem("students")) || [],
+            groups: JSON.parse(localStorage.getItem("groups")) || [],
+            classSessions: JSON.parse(localStorage.getItem("classSessions")) || [],
+            exams: JSON.parse(localStorage.getItem("exams")) || [],
+            homeworks: JSON.parse(localStorage.getItem("homeworks")) || [],
+            financeRecords: JSON.parse(localStorage.getItem("financeRecords")) || {},
+            expenses: JSON.parse(localStorage.getItem("expenses")) || [],
+            schedule: JSON.parse(localStorage.getItem("schedule")) || [],
+            books: JSON.parse(localStorage.getItem("books")) || [],
+            monthlyPayments: JSON.parse(localStorage.getItem("monthlyPayments")) || {},
+            onlineExams: JSON.parse(localStorage.getItem("onlineExams")) || [],
+            settings: {
+                teacherName: localStorage.getItem("teacherName") || "",
+                centerName: localStorage.getItem("centerName") || "",
+                adminUser: localStorage.getItem("adminUser") || "",
+                adminPass: localStorage.getItem("adminPass") || "",
+                adminPin: localStorage.getItem("adminPin") || "1234",
+                phoneNumbers: localStorage.getItem("teacherPhones") || "",
+                parentMsgTemplate: localStorage.getItem("parentMsgTemplate") || "",
+                studentMsgTemplate: localStorage.getItem("studentMsgTemplate") || ""
+            }
+        };
+
+        const firebaseUrl = getFirebaseUrl();
+        await fetch(firebaseUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(dataToSync)
+        });
+        
+        console.log("✅ تمت مزامنة البيانات بنجاح مع الفايربيز!");
+    } catch (error) {
+        console.error("❌ خطأ أثناء الرفع للفايربيز:", error);
+    } finally {
+        window.isIncomingSync = false;
+    }
+};
