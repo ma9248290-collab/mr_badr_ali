@@ -68,7 +68,7 @@
                     let cName = settings.centerName || "El-Senior";
 
                     // أسماء المستر في الصفحة الرئيسية والمودال والمنصة
-                   if(document.getElementById("nav-brand-name")) document.getElementById("nav-brand-name").innerText ="الفيزيائى: بدر على"; // مؤقت لحد ما الطالب يسجل
+                   if(document.getElementById("nav-brand-name")) document.getElementById("nav-brand-name").innerText ="القيصر: بدر على"; // مؤقت لحد ما الطالب يسجل
                     if(document.getElementById("hero-teacher-name")) document.getElementById("hero-teacher-name").innerText = `مستر ${tName}`;
                     if(document.getElementById("modal-teacher-name")) document.getElementById("modal-teacher-name").innerText = `مستر ${tName}`;
                     if(document.getElementById("top-name")) document.getElementById("top-name").innerText = `مرحباً بك!`; // مؤقت لحد ما الطالب يسجل
