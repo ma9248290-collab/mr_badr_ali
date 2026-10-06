@@ -692,21 +692,91 @@ async function activateSoftware() {
 
  
 
-window.isIncomingSync = false; 
+window.isIncomingSync = false;
+let syncTimeoutTimer = null; // متغير لحفظ التوقيت ومنع الرفع المتكرر المزعج
+
 const originalSetItem = localStorage.setItem;
 const keysToSync = ["students", "classSessions", "exams", "homeworks", "schedule", "groups", "financeRecords", "expenses", "books", "monthlyPayments", "onlineExams"];
 
 localStorage.setItem = function(k, v) {
     originalSetItem.apply(this, arguments);
     
-    // 🚀 التعديل السحري (Debounce): تجميع كل الحفظ ورفعه مرة واحدة للسيرفر كل 3 ثواني بدل ما يرفع مع كل طالب ويهنج المتصفح
+    // 🚀 التعديل السحري للمزامنة اللحظية الأونلاين (Debounce)
+    // لو غيرت حاجة، السيستم هيستنى 2 ثانية ولو مفيش تغييرات تانية هيرفعها للسيرفر فوراً في الخلفية
     if (keysToSync.includes(k) && !window.isIncomingSync) {
-        clearTimeout(window.syncTimeoutTimer);
-        window.syncTimeoutTimer = setTimeout(() => {
+        clearTimeout(syncTimeoutTimer);
+        syncTimeoutTimer = setTimeout(() => {
             if(typeof syncDataToBot === 'function') syncDataToBot();
-        }, 3000); 
+        }, 2000); 
     }
 };
+
+// ==========================================
+// 🚀 دالة المزامنة السحابية (Real-time Upload) المحدثة
+// ==========================================
+window.syncDataToBot = async function() {
+    let uid = window.getSafeUid ? window.getSafeUid() : "AlQaisar_System";
+    
+    // تجميع الداتا من الجهاز لرفعها
+    const uploadData = {
+        students: students,
+        groups: groups,
+        classSessions: classSessions,
+        exams: exams,
+        homeworks: homeworks,
+        financeRecords: financeRecords,
+        expenses: expenses,
+        schedule: schedule,
+        books: books,
+        onlineExams: window.onlineExams || [],
+        monthlyPayments: window.monthlyPayments || {}
+    };
+
+    try {
+        // إظهار بادج التحميل الصغير بجوار اللوجو (بدون إيقاف الشاشة للمدرس)
+        let statusText = document.getElementById("network-status-text");
+        let statusDot = document.getElementById("network-status-dot");
+        if(statusText) statusText.innerText = "جاري الحفظ سحابياً...";
+        if(statusDot) statusDot.style.background = "#f59e0b"; // برتقالي
+
+        // 🚀 الرفع الفعلي لـ Firebase (باستخدام PATCH عشان ميأثرش على إعدادات الحساب)
+        await fetch(`https://new-0-2b6c6-default-rtdb.europe-west1.firebasedatabase.app/${uid}/data.json`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(uploadData)
+        });
+
+        // رسالة نجاح صامتة (في مؤشر الإنترنت)
+        if(statusText) {
+            statusText.innerText = "تم الحفظ أونلاين ✅";
+            statusText.style.color = "#10b981";
+        }
+        if(statusDot) statusDot.style.background = "#10b981";
+
+        // إرجاع شكل المؤشر لطبيعته بعد 3 ثواني
+        setTimeout(() => {
+            if(statusText) { statusText.innerText = "متصل بالإنترنت"; statusText.style.color = ""; }
+        }, 3000);
+
+    } catch (e) {
+        // لو الإنترنت فصل أثناء الحفظ
+        console.error("خطأ في المزامنة الأونلاين:", e);
+        let statusText = document.getElementById("network-status-text");
+        let statusDot = document.getElementById("network-status-dot");
+        if(statusText) {
+            statusText.innerText = "فشل الحفظ! تأكد من الإنترنت ❌";
+            statusText.style.color = "#ef4444";
+        }
+        if(statusDot) statusDot.style.background = "#ef4444"; // أحمر
+    }
+};
+
+// 🔄 تشغيل جلب الداتا من السيرفر بشكل دوري (كل 30 ثانية) لجلب تعديلات السكرتارية
+setInterval(() => {
+    if (sessionStorage.getItem("isLoggedIn") === "true") {
+        if(typeof loadDataFromFirebase === 'function') loadDataFromFirebase(true); // نمرر true عشان يكون تحديث صامت
+    }
+}, 30000);
 
 // ==========================================
 // 5. إدارة الجدول الأسبوعي (النسخة المرنة الديناميكية)
@@ -5764,7 +5834,7 @@ window.renderTable = function() {
     ['code', 'name', 'level', 'group'].forEach(col => {
         let el = document.getElementById(`sort-st-${col}`);
         if(el) {
-            if(window.studentsSortState.column === col) {
+            if(window.studentsSortState && window.studentsSortState.column === col) {
                 el.innerHTML = window.studentsSortState.direction === 'asc' ? '▲' : '▼';
                 el.style.color = 'var(--primary-color)';
                 el.style.fontWeight = '900';
@@ -5776,24 +5846,34 @@ window.renderTable = function() {
         }
     });
     
-    let sortedList = [...students].sort((a, b) => smartCompare(a, b, window.studentsSortState.column, window.studentsSortState.direction));
+    let sortedList = [...students];
+    if (window.studentsSortState) {
+        sortedList.sort((a, b) => smartCompare(a, b, window.studentsSortState.column, window.studentsSortState.direction));
+    }
 
-    let html = ""; 
+    // 🚀 السر هنا: استخدام الـ Fragment لعدم عمل Reflow لصفحة الـ HTML مع كل صف
+    const fragment = document.createDocumentFragment();
+
     sortedList.forEach((student) => { 
+        const tr = document.createElement("tr");
+        
         let trackBadge = student.level.includes('ثانوي') || student.level.includes('بكالوريا') ? `<br><span style="font-size: 11px; color: var(--text-muted); font-weight: bold;">مسار: ${student.track || 'عام'}</span>` : '';
         let specialBadge = student.isSpecialCase ? `<span style="cursor: help; margin-right: 5px; font-size: 14px;" title="حالة خاصة: ${student.specialAmount > 0 ? 'يدفع ' + student.specialAmount + ' ج.م' : 'إعفاء تام'}">⭐</span>` : '';
         let noteIcon = student.note && student.note.trim() !== "" ? `<span style="cursor: pointer; margin-right: 8px; font-size: 16px; filter: drop-shadow(0 2px 4px rgba(139,92,246,0.4));" title="يوجد ملاحظة (اضغط للعرض)" onclick="openStudentNoteModal('${student.code}')">📝</span>` : `<span style="cursor: pointer; margin-right: 8px; font-size: 14px; opacity: 0.3;" title="إضافة ملاحظة" onclick="openStudentNoteModal('${student.code}')">📝</span>`;
         
-        html += `<tr>
+        tr.innerHTML = `
             <td><strong style="color:var(--primary-color);">${student.code}</strong></td>
             <td>${student.name} ${specialBadge} ${noteIcon}</td>
             <td>${student.level} ${trackBadge}</td>
             <td>${student.group}</td>
             <td><button class="profile-btn" onclick="openStudentProfile('${student.code}')">👤 الملف</button></td>
-        </tr>`; 
+        `;
+        fragment.appendChild(tr);
     }); 
     
-    tbody.innerHTML = html; 
+    tbody.innerHTML = ""; 
+    tbody.appendChild(fragment); // 🚀 حقن دفعة واحدة سريعة جداً
+
     if(document.getElementById("total-students")) {
         document.getElementById("total-students").innerText = students.length; 
     }
@@ -6670,98 +6750,84 @@ window.saveBotSettings = function() {
 };
 
 
-// 3. المزامنة السحابية + التحقق من الإيقاف والتاريخ التلقائي والإنذار
-async function loadDataFromFirebase() {
-    // 🛑 منع التحميل من السحابة لو الحساب تجريبي
+// ==========================================
+// 3. المزامنة السحابية + التحميل الصامت التلقائي
+// ==========================================
+async function loadDataFromFirebase(isSilent = false) {
     if (localStorage.getItem("is_demo_mode") === "true") {
         isFirebaseLoaded = true; return; 
     }
     
-    // 🔥 تعريف كود السنتر اللي كان بيعمل إيرور في الخفاء
     let currentLicenseKey = localStorage.getItem("licenseKey"); 
     if(!currentLicenseKey) return; 
     
     try {
-        let licRes = await fetch(`https://edutrack-system-1ded4-default-rtdb.firebaseio.com/licenses/${currentLicenseKey}.json`);
-        let licData = await licRes.json();
-        
-        if (licData) {
-            let isExpired = false;
+        // فحص الترخيص (يتم مرة واحدة فقط عند الفتح وليس في التحديث الصامت)
+        if (!isSilent) {
+            let licRes = await fetch(`https://edutrack-system-1ded4-default-rtdb.firebaseio.com/licenses/${currentLicenseKey}.json`);
+            let licData = await licRes.json();
             
-            // حساب هل الباقة انتهت زمنياً أم لا
-            if (licData.activatedAt) {
-                let activationDate = new Date(licData.activatedAt);
-                let expirationDate = new Date(activationDate);
-                
-                if (licData.durationDays) {
-                    expirationDate.setDate(expirationDate.getDate() + parseInt(licData.durationDays));
-                } else if (licData.durationMonths) {
-                    expirationDate.setMonth(expirationDate.getMonth() + parseInt(licData.durationMonths));
-                }
-                
-                let today = new Date();
-                let timeDiff = expirationDate.getTime() - today.getTime();
-                let daysLeft = Math.ceil(timeDiff / (1000 * 3600 * 24)); // حساب الأيام المتبقية
-
-                if (licData.durationMonths != 99) {
-                    if (daysLeft <= 0) {
-                        isExpired = true;
-                    } else if (daysLeft <= 5 && daysLeft > 0) {
-                        // 🚨 إظهار شريط الإنذار
-                        let banner = document.getElementById("expiration-banner");
-                        if(banner) {
-                            banner.style.display = "block";
-                            document.getElementById("expire-days").innerText = daysLeft;
+            if (licData) {
+                let isExpired = false;
+                if (licData.activatedAt) {
+                    let activationDate = new Date(licData.activatedAt);
+                    let expirationDate = new Date(activationDate);
+                    if (licData.durationDays) expirationDate.setDate(expirationDate.getDate() + parseInt(licData.durationDays));
+                    else if (licData.durationMonths) expirationDate.setMonth(expirationDate.getMonth() + parseInt(licData.durationMonths));
+                    
+                    let today = new Date();
+                    let daysLeft = Math.ceil((expirationDate.getTime() - today.getTime()) / (1000 * 3600 * 24));
+                    if (licData.durationMonths != 99) {
+                        if (daysLeft <= 0) isExpired = true;
+                        else if (daysLeft <= 5 && daysLeft > 0) {
+                            let banner = document.getElementById("expiration-banner");
+                            if(banner) { banner.style.display = "block"; document.getElementById("expire-days").innerText = daysLeft; }
                         }
                     }
                 }
-            }
 
-            // 🚫 الطرد المباشر
-            if (licData.status === 'suspended' || isExpired) {
-                sessionStorage.removeItem("isLoggedIn"); // مسح الجلسة
-                localStorage.setItem("keepLoggedIn", "false"); // 🔥 مسح (تذكرني) إجبارياً
-                
-                document.getElementById("login-screen").style.display = "none";
-                document.getElementById("main-app").style.display = "none";
-                
-                const suspendedScreen = document.getElementById("suspended-screen");
-                if(suspendedScreen) {
-                    suspendedScreen.style.display = "flex";
-                    if (isExpired) {
-                        suspendedScreen.querySelector("h2").innerText = "انتهت فترة الاشتراك! ⏳";
-                        suspendedScreen.querySelector("p").innerText = "لقد انتهت صلاحية باقتك الحالية. يرجى التواصل مع الإدارة لتجديد الاشتراك واستعادة بياناتك.";
-                    } else {
-                        suspendedScreen.querySelector("h2").innerText = "تم إيقاف النسخة! 🚫";
-                        suspendedScreen.querySelector("p").innerText = "عفواً، تم إيقاف ترخيص استخدام هذا النظام من قبل الإدارة العليا.";
+                if (licData.status === 'suspended' || isExpired) {
+                    sessionStorage.removeItem("isLoggedIn"); localStorage.setItem("keepLoggedIn", "false");
+                    document.getElementById("login-screen").style.display = "none"; document.getElementById("main-app").style.display = "none";
+                    const suspendedScreen = document.getElementById("suspended-screen");
+                    if(suspendedScreen) {
+                        suspendedScreen.style.display = "flex";
+                        if (isExpired) {
+                            suspendedScreen.querySelector("h2").innerText = "انتهت فترة الاشتراك! ⏳";
+                            suspendedScreen.querySelector("p").innerText = "لقد انتهت صلاحية باقتك الحالية.";
+                        } else {
+                            suspendedScreen.querySelector("h2").innerText = "تم إيقاف النسخة! 🚫";
+                            suspendedScreen.querySelector("p").innerText = "عفواً، تم إيقاف ترخيص استخدام هذا النظام.";
+                        }
                     }
+                    return; 
                 }
-                return; // ⛔ قفل السيستم ومنع تحميل باقي الداتا
             }
         }
-        
-        // ... (باقي الكود بتاع جلب الداتا الخاصة بالطلاب زي ما هو تحت هنا) ...
 
-        // --- باقي دالة الـ loadDataFromFirebase لسحب الداتا ---
+        // سحب البيانات من السيرفر
         let res = await fetch(getFirebaseUrl());
         let data = await res.json();
-        // ... (تكملة الكود بتاع سحب الـ settings والـ students زي ما هو) ...
         
         if (data) {
-            if(data.settings) {
+            // 🛑 الحماية الذكية: لو المدرس بيكتب حاجة في خانة، السيستم مش هيحدث الشاشة عشان ميمسحش كلامه!
+            let activeEl = document.activeElement;
+            let isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
+            if (isSilent && isTyping) return; // تأجيل السحب لحد ما يخلص كتابة
+
+            if(data.settings && !isSilent) {
                 localStorage.setItem("teacherName", data.settings.teacherName);
                 localStorage.setItem("centerName", data.settings.centerName);
-                // السطرين الجداد دول 👇
                 localStorage.setItem("adminUser", data.settings.adminUser);
                 localStorage.setItem("adminPass", data.settings.adminPass);
                 localStorage.setItem("adminPin", data.settings.adminPin);
-                adminPin = data.settings.adminPin; // تحديث المتغير العالمي
+                adminPin = data.settings.adminPin; 
                 if(data.settings.phoneNumbers) localStorage.setItem("teacherPhones", data.settings.phoneNumbers);
                 if(data.settings.parentMsgTemplate) localStorage.setItem("parentMsgTemplate", data.settings.parentMsgTemplate);
                 if(data.settings.studentMsgTemplate) localStorage.setItem("studentMsgTemplate", data.settings.studentMsgTemplate);
-            } else if (data.teacherName) {
-                localStorage.setItem("teacherName", data.teacherName);
             }
+
+            window.isIncomingSync = true; // نوقف الرفع وإحنا بنستقبل داتا
 
             students = (data.students || []).filter(i => i !== null);
             groups = (data.groups || []).filter(i => i !== null);
@@ -6769,7 +6835,7 @@ async function loadDataFromFirebase() {
             expenses = (data.expenses || []).filter(i => i !== null);
             financeRecords = data.financeRecords || {};
             books = (data.books || []).filter(i => i !== null);
-             onlineExams = (data.onlineExams || []).filter(i => i !== null);
+            onlineExams = (data.onlineExams || []).filter(i => i !== null);
             classSessions = (data.classSessions || []).filter(i => i !== null).map(s => ({...s, attendance: s.attendance || {}}));
             exams = (data.exams || []).filter(i => i !== null).map(e => ({...e, grades: e.grades || {}}));
             homeworks = (data.homeworks || []).filter(i => i !== null).map(h => ({...h, grades: h.grades || {}}));
@@ -6783,13 +6849,19 @@ async function loadDataFromFirebase() {
             localStorage.setItem("financeRecords", JSON.stringify(financeRecords));
             localStorage.setItem("expenses", JSON.stringify(expenses));
             localStorage.setItem("books", JSON.stringify(books));
-           
             localStorage.setItem("onlineExams", JSON.stringify(onlineExams));
 
-            renderTable();
-            if (document.getElementById("groups-list")) renderGroupCards();
-            if (typeof renderBooksTable === "function") renderBooksTable();
-            if(sessionStorage.getItem("isLoggedIn") === "true" && typeof renderDashboardCharts === "function") {
+            window.isIncomingSync = false; // نرجع الرفع يشتغل تاني
+
+            // تحديث الشاشات بصمت
+            if (document.getElementById("students-view").style.display === "block") renderTable();
+            if (document.getElementById("groups-view").style.display === "block") renderGroupCards();
+            if (document.getElementById("finance-view").style.display === "block" && typeof renderFinanceTable === "function") renderFinanceTable();
+            if (document.getElementById("attendance-view").style.display === "block" && currentActiveSessionId) {
+                let sess = classSessions.find(s=>s.id === currentActiveSessionId);
+                if(sess) renderAttendanceTable(sess);
+            }
+            if (!isSilent && sessionStorage.getItem("isLoggedIn") === "true" && typeof renderDashboardCharts === "function") {
                 renderDashboardCharts();
             }
         }
@@ -6797,12 +6869,15 @@ async function loadDataFromFirebase() {
         console.log("⚠️ تعذر الاتصال بالسحابة أو قاعدة البيانات فارغة.");
     }
     isFirebaseLoaded = true; 
-
-    // بعد ما السيستم يحمل الداتا ويفرشها، شيك لو محتاجين باك أب النهاردة
-    setTimeout(autoCloudBackup, 5000); // بنأخره 5 ثواني عشان ميعطلش فتح الشاشة
-
-    setTimeout(window.checkGlobalAnnouncements, 1500);
+    if(!isSilent) setTimeout(window.checkGlobalAnnouncements, 1500);
 }
+
+// 🚀 التحديث التلقائي الصامت كل 20 ثانية (لجلب التعديلات من الأجهزة الأخرى)
+setInterval(() => {
+    if (sessionStorage.getItem("isLoggedIn") === "true") {
+        loadDataFromFirebase(true);
+    }
+}, 20000);
 
 // ==========================================
 // 🧬 المُدمج الذكي للبيانات (Two-Way Sync Merge)
