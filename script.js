@@ -712,10 +712,11 @@ localStorage.setItem = function(k, v) {
 };
 
 // ==========================================
-// 🚀 دالة المزامنة السحابية (Real-time Upload) المحدثة
+// 🚀 دالة المزامنة السحابية (Real-time Upload) 
 // ==========================================
 window.syncDataToBot = async function() {
-    let uid = window.getSafeUid ? window.getSafeUid() : "AlQaisar_System";
+    // 👑 التوجيه المباشر لنفس مسار السحب
+    let uid = "AlQaisar_System"; 
     
     // تجميع الداتا من الجهاز لرفعها
     const uploadData = {
@@ -733,41 +734,37 @@ window.syncDataToBot = async function() {
     };
 
     try {
-        // إظهار بادج التحميل الصغير بجوار اللوجو (بدون إيقاف الشاشة للمدرس)
         let statusText = document.getElementById("network-status-text");
         let statusDot = document.getElementById("network-status-dot");
-        if(statusText) statusText.innerText = "جاري الحفظ سحابياً...";
-        if(statusDot) statusDot.style.background = "#f59e0b"; // برتقالي
+        if(statusText) statusText.innerText = "جاري الحفظ سحابياً... ⏳";
+        if(statusDot) statusDot.style.background = "#f59e0b";
 
-        // 🚀 الرفع الفعلي لـ Firebase (باستخدام PATCH عشان ميأثرش على إعدادات الحساب)
+        // استخدام PUT لضمان استبدال الداتا القديمة بالكامل ومسح المحذوفات
         await fetch(`https://new-0-2b6c6-default-rtdb.europe-west1.firebasedatabase.app/${uid}/data.json`, {
-            method: 'PATCH',
+            method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(uploadData)
         });
 
-        // رسالة نجاح صامتة (في مؤشر الإنترنت)
         if(statusText) {
             statusText.innerText = "تم الحفظ أونلاين ✅";
             statusText.style.color = "#10b981";
         }
         if(statusDot) statusDot.style.background = "#10b981";
 
-        // إرجاع شكل المؤشر لطبيعته بعد 3 ثواني
         setTimeout(() => {
             if(statusText) { statusText.innerText = "متصل بالإنترنت"; statusText.style.color = ""; }
         }, 3000);
 
     } catch (e) {
-        // لو الإنترنت فصل أثناء الحفظ
         console.error("خطأ في المزامنة الأونلاين:", e);
         let statusText = document.getElementById("network-status-text");
         let statusDot = document.getElementById("network-status-dot");
         if(statusText) {
-            statusText.innerText = "فشل الحفظ! تأكد من الإنترنت ❌";
+            statusText.innerText = "فشل الحفظ! ❌";
             statusText.style.color = "#ef4444";
         }
-        if(statusDot) statusDot.style.background = "#ef4444"; // أحمر
+        if(statusDot) statusDot.style.background = "#ef4444";
     }
 };
 
@@ -6754,59 +6751,17 @@ window.saveBotSettings = function() {
 // 3. المزامنة السحابية + التحميل الصامت التلقائي
 // ==========================================
 async function loadDataFromFirebase(isSilent = false) {
+    // 🛑 منع التحميل من السحابة لو الحساب تجريبي
     if (localStorage.getItem("is_demo_mode") === "true") {
         isFirebaseLoaded = true; return; 
     }
     
-    let currentLicenseKey = localStorage.getItem("licenseKey"); 
-    if(!currentLicenseKey) return; 
+    // 👑 التوجيه المباشر لقاعدة بيانات القيصر (بدون انتظار كود التفعيل)
+    let uid = "AlQaisar_System";
     
     try {
-        // فحص الترخيص (يتم مرة واحدة فقط عند الفتح وليس في التحديث الصامت)
-        if (!isSilent) {
-            let licRes = await fetch(`https://edutrack-system-1ded4-default-rtdb.firebaseio.com/licenses/${currentLicenseKey}.json`);
-            let licData = await licRes.json();
-            
-            if (licData) {
-                let isExpired = false;
-                if (licData.activatedAt) {
-                    let activationDate = new Date(licData.activatedAt);
-                    let expirationDate = new Date(activationDate);
-                    if (licData.durationDays) expirationDate.setDate(expirationDate.getDate() + parseInt(licData.durationDays));
-                    else if (licData.durationMonths) expirationDate.setMonth(expirationDate.getMonth() + parseInt(licData.durationMonths));
-                    
-                    let today = new Date();
-                    let daysLeft = Math.ceil((expirationDate.getTime() - today.getTime()) / (1000 * 3600 * 24));
-                    if (licData.durationMonths != 99) {
-                        if (daysLeft <= 0) isExpired = true;
-                        else if (daysLeft <= 5 && daysLeft > 0) {
-                            let banner = document.getElementById("expiration-banner");
-                            if(banner) { banner.style.display = "block"; document.getElementById("expire-days").innerText = daysLeft; }
-                        }
-                    }
-                }
-
-                if (licData.status === 'suspended' || isExpired) {
-                    sessionStorage.removeItem("isLoggedIn"); localStorage.setItem("keepLoggedIn", "false");
-                    document.getElementById("login-screen").style.display = "none"; document.getElementById("main-app").style.display = "none";
-                    const suspendedScreen = document.getElementById("suspended-screen");
-                    if(suspendedScreen) {
-                        suspendedScreen.style.display = "flex";
-                        if (isExpired) {
-                            suspendedScreen.querySelector("h2").innerText = "انتهت فترة الاشتراك! ⏳";
-                            suspendedScreen.querySelector("p").innerText = "لقد انتهت صلاحية باقتك الحالية.";
-                        } else {
-                            suspendedScreen.querySelector("h2").innerText = "تم إيقاف النسخة! 🚫";
-                            suspendedScreen.querySelector("p").innerText = "عفواً، تم إيقاف ترخيص استخدام هذا النظام.";
-                        }
-                    }
-                    return; 
-                }
-            }
-        }
-
-        // سحب البيانات من السيرفر
-        let res = await fetch(getFirebaseUrl());
+        // سحب البيانات من السيرفر مباشرة
+        let res = await fetch(`https://new-0-2b6c6-default-rtdb.europe-west1.firebasedatabase.app/${uid}/data.json`);
         let data = await res.json();
         
         if (data) {
@@ -6816,19 +6771,19 @@ async function loadDataFromFirebase(isSilent = false) {
             if (isSilent && isTyping) return; // تأجيل السحب لحد ما يخلص كتابة
 
             if(data.settings && !isSilent) {
-                localStorage.setItem("teacherName", data.settings.teacherName);
-                localStorage.setItem("centerName", data.settings.centerName);
-                localStorage.setItem("adminUser", data.settings.adminUser);
-                localStorage.setItem("adminPass", data.settings.adminPass);
-                localStorage.setItem("adminPin", data.settings.adminPin);
-                adminPin = data.settings.adminPin; 
-                if(data.settings.phoneNumbers) localStorage.setItem("teacherPhones", data.settings.phoneNumbers);
-                if(data.settings.parentMsgTemplate) localStorage.setItem("parentMsgTemplate", data.settings.parentMsgTemplate);
-                if(data.settings.studentMsgTemplate) localStorage.setItem("studentMsgTemplate", data.settings.studentMsgTemplate);
+                localStorage.setItem("teacherName", data.settings.teacherName || "القيصر");
+                localStorage.setItem("centerName", data.settings.centerName || "");
+                localStorage.setItem("adminUser", data.settings.adminUser || "admin");
+                localStorage.setItem("adminPass", data.settings.adminPass || "12345");
+                if(data.settings.adminPin) {
+                    localStorage.setItem("adminPin", data.settings.adminPin);
+                    window.adminPin = data.settings.adminPin; 
+                }
             }
 
-            window.isIncomingSync = true; // نوقف الرفع وإحنا بنستقبل داتا
+            window.isIncomingSync = true; // نوقف الرفع التلقائي وإحنا بنستقبل داتا عشان ميحصلش loop
 
+            // سحب القوائم وتنقيتها من القيم الفارغة
             students = (data.students || []).filter(i => i !== null);
             groups = (data.groups || []).filter(i => i !== null);
             schedule = (data.schedule || []).filter(i => i !== null);
@@ -6840,6 +6795,7 @@ async function loadDataFromFirebase(isSilent = false) {
             exams = (data.exams || []).filter(i => i !== null).map(e => ({...e, grades: e.grades || {}}));
             homeworks = (data.homeworks || []).filter(i => i !== null).map(h => ({...h, grades: h.grades || {}}));
             
+            // حفظها في المتصفح لسرعة الوصول
             localStorage.setItem("students", JSON.stringify(students));
             localStorage.setItem("classSessions", JSON.stringify(classSessions));
             localStorage.setItem("exams", JSON.stringify(exams));
@@ -6853,15 +6809,16 @@ async function loadDataFromFirebase(isSilent = false) {
 
             window.isIncomingSync = false; // نرجع الرفع يشتغل تاني
 
-            // تحديث الشاشات بصمت
-            if (document.getElementById("students-view").style.display === "block") renderTable();
-            if (document.getElementById("groups-view").style.display === "block") renderGroupCards();
-            if (document.getElementById("finance-view").style.display === "block" && typeof renderFinanceTable === "function") renderFinanceTable();
-            if (document.getElementById("attendance-view").style.display === "block" && currentActiveSessionId) {
+            // تحديث الشاشات المفتوحة بصمت
+            if (document.getElementById("students-view")?.style.display === "block") renderTable();
+            if (document.getElementById("groups-view")?.style.display === "block") renderGroupCards();
+            if (document.getElementById("finance-view")?.style.display === "block" && typeof renderFinanceTable === "function") renderFinanceTable();
+            if (document.getElementById("attendance-view")?.style.display === "block" && currentActiveSessionId) {
                 let sess = classSessions.find(s=>s.id === currentActiveSessionId);
                 if(sess) renderAttendanceTable(sess);
             }
-            if (!isSilent && sessionStorage.getItem("isLoggedIn") === "true" && typeof renderDashboardCharts === "function") {
+            // تحديث لوحة الإحصائيات
+            if (!isSilent && typeof renderDashboardCharts === "function") {
                 renderDashboardCharts();
             }
         }
@@ -6869,7 +6826,6 @@ async function loadDataFromFirebase(isSilent = false) {
         console.log("⚠️ تعذر الاتصال بالسحابة أو قاعدة البيانات فارغة.");
     }
     isFirebaseLoaded = true; 
-    if(!isSilent) setTimeout(window.checkGlobalAnnouncements, 1500);
 }
 
 // 🚀 التحديث التلقائي الصامت كل 20 ثانية (لجلب التعديلات من الأجهزة الأخرى)
@@ -7579,45 +7535,3 @@ window.renderAttendanceTable = function(session) {
 
 
 
-// دالة المزامنة لرفع الداتا من المتصفح للفايربيز
-window.syncDataToBot = async function() {
-    window.isIncomingSync = true;
-    try {
-        const dataToSync = {
-            students: JSON.parse(localStorage.getItem("students")) || [],
-            groups: JSON.parse(localStorage.getItem("groups")) || [],
-            classSessions: JSON.parse(localStorage.getItem("classSessions")) || [],
-            exams: JSON.parse(localStorage.getItem("exams")) || [],
-            homeworks: JSON.parse(localStorage.getItem("homeworks")) || [],
-            financeRecords: JSON.parse(localStorage.getItem("financeRecords")) || {},
-            expenses: JSON.parse(localStorage.getItem("expenses")) || [],
-            schedule: JSON.parse(localStorage.getItem("schedule")) || [],
-            books: JSON.parse(localStorage.getItem("books")) || [],
-            monthlyPayments: JSON.parse(localStorage.getItem("monthlyPayments")) || {},
-            onlineExams: JSON.parse(localStorage.getItem("onlineExams")) || [],
-            settings: {
-                teacherName: localStorage.getItem("teacherName") || "",
-                centerName: localStorage.getItem("centerName") || "",
-                adminUser: localStorage.getItem("adminUser") || "",
-                adminPass: localStorage.getItem("adminPass") || "",
-                adminPin: localStorage.getItem("adminPin") || "1234",
-                phoneNumbers: localStorage.getItem("teacherPhones") || "",
-                parentMsgTemplate: localStorage.getItem("parentMsgTemplate") || "",
-                studentMsgTemplate: localStorage.getItem("studentMsgTemplate") || ""
-            }
-        };
-
-        const firebaseUrl = getFirebaseUrl();
-        await fetch(firebaseUrl, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(dataToSync)
-        });
-        
-        console.log("✅ تمت مزامنة البيانات بنجاح مع الفايربيز!");
-    } catch (error) {
-        console.error("❌ خطأ أثناء الرفع للفايربيز:", error);
-    } finally {
-        window.isIncomingSync = false;
-    }
-};
