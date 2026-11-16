@@ -3,6 +3,10 @@
 // 1. قواعد البيانات والتهيئة الأساسية
 // ==========================================
 const TEACHER_NAME = "القيصر";
+const MASTER_DB_URL = "https://saad-62e70-default-rtdb.europe-west1.firebasedatabase.app";
+window.getSafeUid = function() {
+    return "AlQaisar_System";
+};
 let students = JSON.parse(localStorage.getItem("students")) || [];
 let classSessions = JSON.parse(localStorage.getItem("classSessions")) || []; 
 let exams = JSON.parse(localStorage.getItem("exams")) || []; 
@@ -734,79 +738,38 @@ async function activateSoftware() {
     } catch (e) { showToast("عطل في الاتصال بالخادم", "error"); }
 }
 
-
 // =========================================================
-// 🛡️ محرك المزامنة الذكي المطور V2 (يدعم الحذف النهائي والمسح الشامل بدون تعارض)
+// ⚡ محرك المزامنة السريع جداً (يرفع فقط القسم المعدل بدون تهنيج)
 // =========================================================
 
 window.isIncomingSync = false;
 window.isSyncingNow = false;
+window.isInitialCloudLoadDone = false;
+window.dirtyKeysSet = new Set(); // يحفظ فقط اسم الجدول الذي تعدل لرفعه وحده بسرعة الصاروخ!
 window.hasPendingOfflineChanges = localStorage.getItem("hasPendingOfflineChanges") === "true";
 
-// سجل العناصر المحذوفة لمنع عودتها من السحابة أثناء الدمج
-window.deletedItemsRegistry = JSON.parse(localStorage.getItem("deletedItemsRegistry") || '{"students":[],"groups":[],"sessions":[],"exams":[],"homeworks":[],"expenses":[],"books":[],"schedule":[]}');
-
-window.registerDeletedItem = function(category, idOrCode) {
-    if (!idOrCode) return;
-    const key = String(idOrCode).trim();
-    if (!window.deletedItemsRegistry[category]) window.deletedItemsRegistry[category] = [];
-    if (!window.deletedItemsRegistry[category].includes(key)) {
-        window.deletedItemsRegistry[category].push(key);
-        originalSetItem.call(localStorage, "deletedItemsRegistry", JSON.stringify(window.deletedItemsRegistry));
-    }
-};
-
 const originalSetItem = localStorage.setItem;
-const keysToSync = ["students", "classSessions", "exams", "homeworks", "schedule", "groups", "financeRecords", "expenses", "books", "monthlyPayments", "onlineExams"];
+const keysToSync = ["students", "classSessions", "exams", "homeworks", "schedule", "groups", "financeRecords", "expenses", "books", "monthlyPayments"];
 
-// 1️⃣ مراقبة التعديلات المحلية واكتشاف أي عملية حذف تلقائياً
+// 1️⃣ مراقب خفيف جداً لا يجمد المتصفح أثناء تسجيل الطالب
 localStorage.setItem = function(k, v) {
-    // اكتشاف الحذف تلقائياً بمقارنة القديم بالجديد قبل الحفظ
-    if (keysToSync.includes(k) && !window.isIncomingSync) {
-        try {
-            const oldRaw = localStorage.getItem(k);
-            if (oldRaw && v) {
-                const oldData = JSON.parse(oldRaw);
-                const newData = JSON.parse(v);
-
-                if (Array.isArray(oldData) && Array.isArray(newData) && newData.length < oldData.length) {
-                    const idField = k === "students" ? "code" : (k === "groups" ? "name" : "id");
-                    const catMap = { students: "students", groups: "groups", classSessions: "sessions", exams: "exams", homeworks: "homeworks", expenses: "expenses", books: "books", schedule: "schedule" };
-                    const cat = catMap[k];
-                    if (cat) {
-                        const newSet = new Set(newData.map(item => item && String(item[idField]).trim()));
-                        oldData.forEach(oldItem => {
-                            if (oldItem && oldItem[idField] && !newSet.has(String(oldItem[idField]).trim())) {
-                                window.registerDeletedItem(cat, oldItem[idField]);
-                            }
-                        });
-                    }
-                }
-            }
-        } catch (e) {}
-    }
-
     originalSetItem.apply(this, arguments);
 
-    if (keysToSync.includes(k) && !window.isIncomingSync) {
+    if (keysToSync.includes(k) && !window.isIncomingSync && window.isInitialCloudLoadDone) {
+        window.dirtyKeysSet.add(k);
         originalSetItem.call(localStorage, "hasPendingOfflineChanges", "true");
-        originalSetItem.call(localStorage, "lastLocalEditTime", Date.now().toString());
         window.hasPendingOfflineChanges = true;
 
         updateNetworkBadgeUI(navigator.onLine ? "syncing" : "offline");
 
         clearTimeout(window.syncTimeoutTimer);
         window.syncTimeoutTimer = setTimeout(() => {
-            if (navigator.onLine) {
-                window.smartTwoWaySync(true);
-            } else {
-                updateNetworkBadgeUI("offline");
-            }
-        }, 1200);
+            if (navigator.onLine) window.fastCloudPush();
+            else updateNetworkBadgeUI("offline");
+        }, 600);
     }
 };
 
-// 2️⃣ تحديث شكل مؤشر الإنترنت
 function updateNetworkBadgeUI(state) {
     const dot = document.getElementById("network-status-dot");
     const txt = document.getElementById("network-status-text");
@@ -814,118 +777,75 @@ function updateNetworkBadgeUI(state) {
     if (!dot || !txt || !badge) return;
 
     if (state === "online") {
-        dot.style.background = "#10b981";
-        dot.style.boxShadow = "0 0 6px #10b981";
-        txt.innerText = "متصل ومزامن ✅";
-        badge.style.color = "#10b981";
-        badge.style.background = "rgba(16, 185, 129, 0.1)";
+        dot.style.background = "#10b981"; dot.style.boxShadow = "0 0 6px #10b981";
+        txt.innerText = "متصل وسريع ⚡"; badge.style.color = "#10b981"; badge.style.background = "rgba(16, 185, 129, 0.1)";
     } else if (state === "syncing") {
-        dot.style.background = "#f59e0b";
-        dot.style.boxShadow = "0 0 6px #f59e0b";
-        txt.innerText = "جاري حفظ التعديلات... ⏳";
-        badge.style.color = "#f59e0b";
-        badge.style.background = "rgba(245, 158, 11, 0.1)";
+        dot.style.background = "#f59e0b"; dot.style.boxShadow = "0 0 6px #f59e0b";
+        txt.innerText = "جاري الحفظ... ⏳"; badge.style.color = "#f59e0b"; badge.style.background = "rgba(245, 158, 11, 0.1)";
     } else {
-        dot.style.background = "#ef4444";
-        dot.style.boxShadow = "0 0 6px #ef4444";
-        txt.innerText = "أوفلاين (محفوظ بالجهاز) 🔒";
-        badge.style.color = "#ef4444";
-        badge.style.background = "rgba(239, 68, 68, 0.1)";
+        dot.style.background = "#ef4444"; dot.style.boxShadow = "0 0 6px #ef4444";
+        txt.innerText = "أوفلاين 🔒"; badge.style.color = "#ef4444"; badge.style.background = "rgba(239, 68, 68, 0.1)";
     }
 }
 
-// 3️⃣ خوارزمية الدمج الذكي (تحترم الحذف المحلي وتمنع عودة الممسوح)
-function mergeLocalAndCloudData(cloudData, isLocalPriority = false) {
-    cloudData = cloudData || {};
-    const del = window.deletedItemsRegistry || {};
+// 2️⃣ دالة الرفع الفوري الخفيف (ترسل فقط ما تم تعديله بدون سحب الداتا كلها من جديد!)
+window.fastCloudPush = async function() {
+    if (!navigator.onLine || window.isSyncingNow || !window.isInitialCloudLoadDone) return;
+    window.isSyncingNow = true;
+    updateNetworkBadgeUI("syncing");
 
-    // إذا كان هناك تعديل أو حذف محلي نشط (isLocalPriority = true)، نعتمد القوائم المحلية كأساس ونضيف فقط الجديد من السحابة غير المحذوف
-    if (isLocalPriority) {
-        // الدمج مع استبعاد أي عنصر موجود في سجل المحذوفات
-        const filterDeleted = (arr, idKey, cat) => {
-            const deletedList = del[cat] || [];
-            return (Array.isArray(arr) ? arr : Object.values(arr || {}).filter(Boolean))
-                .filter(item => item && !deletedList.includes(String(item[idKey]).trim()));
+    try {
+        const uid = "AlQaisar_System";
+        const dbUrl = `https://saad-62e70-default-rtdb.europe-west1.firebasedatabase.app/${uid}/data.json`;
+
+        const mapVars = {
+            students: students || [],
+            classSessions: classSessions || [],
+            exams: exams || [],
+            homeworks: homeworks || [],
+            groups: groups || [],
+            financeRecords: financeRecords || {},
+            expenses: expenses || [],
+            books: books || [],
+            schedule: schedule || [],
+            monthlyPayments: window.monthlyPayments || {}
         };
 
-        // 1. الطلاب
-        const studentMap = new Map();
-        filterDeleted(cloudData.students, "code", "students").forEach(s => studentMap.set(String(s.code).trim(), s));
-        (students || []).forEach(s => { if (s && s.code) studentMap.set(String(s.code).trim(), s); });
-        students = Array.from(studentMap.values()).filter(s => !(del.students || []).includes(String(s.code).trim()));
+        // نجهز فقط الجداول التي تغيرت لرفعها في أجزاء من الثانية
+        let payload = {};
+        if (window.dirtyKeysSet.size > 0) {
+            window.dirtyKeysSet.forEach(k => {
+                if (mapVars[k] !== undefined) payload[k] = mapVars[k];
+            });
+        } else {
+            payload = mapVars;
+        }
 
-        // 2. المجموعات
-        const groupMap = new Map();
-        filterDeleted(cloudData.groups, "name", "groups").forEach(g => groupMap.set(String(g.name).trim(), g));
-        (groups || []).forEach(g => { if (g && g.name) groupMap.set(String(g.name).trim(), g); });
-        groups = Array.from(groupMap.values()).filter(g => !(del.groups || []).includes(String(g.name).trim()));
-
-        // 3. الحصص
-        const sessionMap = new Map();
-        filterDeleted(cloudData.classSessions, "id", "sessions").forEach(cs => sessionMap.set(String(cs.id), cs));
-        (classSessions || []).forEach(ls => {
-            if (!ls || !ls.id) return;
-            const idStr = String(ls.id);
-            if (!sessionMap.has(idStr)) sessionMap.set(idStr, ls);
-            else {
-                const cs = sessionMap.get(idStr);
-                sessionMap.set(idStr, {
-                    ...cs,
-                    ...ls,
-                    attendance: { ...(cs.attendance || {}), ...(ls.attendance || {}) },
-                    attendanceLog: { ...(cs.attendanceLog || {}), ...(ls.attendanceLog || {}) }
-                });
-            }
+        const res = await fetch(dbUrl, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
         });
-        classSessions = Array.from(sessionMap.values()).filter(s => !(del.sessions || []).includes(String(s.id).trim()));
 
-        // 4. باقي الجداول (الامتحانات، الواجبات، المصاريف، الكتب، الجدول)
-        const mergeListWithDelete = (cloudArr, localArr, cat) => {
-            const map = new Map();
-            filterDeleted(cloudArr, "id", cat).forEach(i => map.set(String(i.id), i));
-            (localArr || []).forEach(i => { if (i && i.id) map.set(String(i.id), i); });
-            return Array.from(map.values()).filter(i => !(del[cat] || []).includes(String(i.id).trim()));
-        };
+        if (!res.ok) throw new Error("Push failed");
 
-        exams = mergeListWithDelete(cloudData.exams, exams, "exams");
-        homeworks = mergeListWithDelete(cloudData.homeworks, homeworks, "homeworks");
-        expenses = mergeListWithDelete(cloudData.expenses, expenses, "expenses");
-        books = mergeListWithDelete(cloudData.books, books, "books");
-        schedule = mergeListWithDelete(cloudData.schedule, schedule, "schedule");
-    } else {
-        // عند فتح الصفحة لأول مرة (قراءة من السحابة مباشرة إذا كانت السحابة بها بيانات)
-        const toArr = (obj) => Array.isArray(obj) ? obj : Object.values(obj || {}).filter(Boolean);
-        if (cloudData.students !== undefined) students = toArr(cloudData.students);
-        if (cloudData.groups !== undefined) groups = toArr(cloudData.groups);
-        if (cloudData.classSessions !== undefined) classSessions = toArr(cloudData.classSessions);
-        if (cloudData.exams !== undefined) exams = toArr(cloudData.exams);
-        if (cloudData.homeworks !== undefined) homeworks = toArr(cloudData.homeworks);
-        if (cloudData.expenses !== undefined) expenses = toArr(cloudData.expenses);
-        if (cloudData.books !== undefined) books = toArr(cloudData.books);
-        if (cloudData.schedule !== undefined) schedule = toArr(cloudData.schedule);
-        if (cloudData.financeRecords !== undefined) financeRecords = cloudData.financeRecords || {};
-        if (cloudData.monthlyPayments !== undefined) window.monthlyPayments = cloudData.monthlyPayments || {};
-        if (cloudData.onlineExams !== undefined) window.fetchedOnlineExams = toArr(cloudData.onlineExams);
+        window.dirtyKeysSet.clear();
+        window.hasPendingOfflineChanges = false;
+        originalSetItem.call(localStorage, "hasPendingOfflineChanges", "false");
+        updateNetworkBadgeUI("online");
+    } catch (e) {
+        console.error("Fast Push Error:", e);
+        updateNetworkBadgeUI(navigator.onLine ? "online" : "offline");
+    } finally {
+        window.isSyncingNow = false;
     }
+};
 
-    // حفظ النسخة النهائية محلياً بهدوء
-    window.isIncomingSync = true;
-    originalSetItem.call(localStorage, "students", JSON.stringify(students));
-    originalSetItem.call(localStorage, "classSessions", JSON.stringify(classSessions));
-    originalSetItem.call(localStorage, "groups", JSON.stringify(groups));
-    originalSetItem.call(localStorage, "exams", JSON.stringify(exams));
-    originalSetItem.call(localStorage, "homeworks", JSON.stringify(homeworks));
-    originalSetItem.call(localStorage, "financeRecords", JSON.stringify(financeRecords));
-    originalSetItem.call(localStorage, "monthlyPayments", JSON.stringify(window.monthlyPayments || {}));
-    originalSetItem.call(localStorage, "expenses", JSON.stringify(expenses));
-    originalSetItem.call(localStorage, "books", JSON.stringify(books));
-    originalSetItem.call(localStorage, "schedule", JSON.stringify(schedule));
-    if (window.fetchedOnlineExams) originalSetItem.call(localStorage, "onlineExams", JSON.stringify(window.fetchedOnlineExams));
-    window.isIncomingSync = false;
-}
-
-// 4️⃣ الدالة الموحدة للمزامنة والرفع الفوري
+// 3️⃣ دالة السحب الأولي عند فتح النظام (تسحب الجداول بالتوازي وبسرعة فائقة)
 window.smartTwoWaySync = async function(isPushAction = false) {
+    if (isPushAction && window.isInitialCloudLoadDone) {
+        return window.fastCloudPush();
+    }
     if (!navigator.onLine) {
         updateNetworkBadgeUI("offline");
         return;
@@ -936,61 +856,75 @@ window.smartTwoWaySync = async function(isPushAction = false) {
     updateNetworkBadgeUI("syncing");
 
     try {
-        const uid = typeof getSafeUid === "function" ? getSafeUid() : "Historia_System_Master";
-        const dbUrl = `https://historya-el3alamy-default-rtdb.europe-west1.firebasedatabase.app/${uid}/data.json`;
+        const uid = "AlQaisar_System";
+        const base = `https://saad-62e70-default-rtdb.europe-west1.firebasedatabase.app/${uid}/data`;
 
-        const hadLocalEdits = window.hasPendingOfflineChanges || isPushAction;
+        // 🚀 سحب الجداول الأساسية بالتوازي مع تخطي تحميل صور الامتحانات الثقيلة في البداية
+        const [stRes, grpRes, sessRes, exRes, hwRes, finRes, expRes, bkRes, schRes, mpRes] = await Promise.all([
+            fetch(`${base}/students.json`),
+            fetch(`${base}/groups.json`),
+            fetch(`${base}/classSessions.json`),
+            fetch(`${base}/exams.json`),
+            fetch(`${base}/homeworks.json`),
+            fetch(`${base}/financeRecords.json`),
+            fetch(`${base}/expenses.json`),
+            fetch(`${base}/books.json`),
+            fetch(`${base}/schedule.json`),
+            fetch(`${base}/monthlyPayments.json`)
+        ]);
 
-        const res = await fetch(dbUrl);
-        if (!res.ok) throw new Error("Firebase fetch error");
-        const cloudData = (await res.json()) || {};
+        const [cSt, cGrp, cSess, cEx, cHw, cFin, cExp, cBk, cSch, cMp] = await Promise.all([
+            stRes.json(), grpRes.json(), sessRes.json(), exRes.json(), hwRes.json(),
+            finRes.json(), expRes.json(), bkRes.json(), schRes.json(), mpRes.json()
+        ]);
 
-        // دمج البيانات مع احترام المحذوفات
-        mergeLocalAndCloudData(cloudData, hadLocalEdits);
+        const toArr = (obj) => Array.isArray(obj) ? obj.filter(Boolean) : Object.values(obj || {}).filter(Boolean);
 
-        // إذا كان هناك تعديل أو حذف محلي، نرفع النسخة النظيفة فوراً إلى السحابة
-        if (hadLocalEdits) {
-            const payload = {
-                students: students || [],
-                classSessions: classSessions || [],
-                exams: exams || [],
-                homeworks: homeworks || [],
-                groups: groups || [],
-                financeRecords: financeRecords || {},
-                expenses: expenses || [],
-                books: books || [],
-                schedule: schedule || [],
-                monthlyPayments: window.monthlyPayments || {},
-                onlineExams: window.fetchedOnlineExams || cloudData.onlineExams || []
-            };
+        if (cSt !== null) students = toArr(cSt);
+        if (cGrp !== null) groups = toArr(cGrp);
+        if (cSess !== null) classSessions = toArr(cSess);
+        if (cEx !== null) exams = toArr(cEx);
+        if (cHw !== null) homeworks = toArr(cHw);
+        if (cFin !== null) financeRecords = cFin || {};
+        if (cExp !== null) expenses = toArr(cExp);
+        if (cBk !== null) books = toArr(cBk);
+        if (cSch !== null) schedule = toArr(cSch);
+        if (cMp !== null) window.monthlyPayments = cMp || {};
 
-            const pushRes = await fetch(dbUrl, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+        window.isIncomingSync = true;
+        originalSetItem.call(localStorage, "students", JSON.stringify(students));
+        originalSetItem.call(localStorage, "groups", JSON.stringify(groups));
+        originalSetItem.call(localStorage, "classSessions", JSON.stringify(classSessions));
+        originalSetItem.call(localStorage, "exams", JSON.stringify(exams));
+        originalSetItem.call(localStorage, "homeworks", JSON.stringify(homeworks));
+        originalSetItem.call(localStorage, "financeRecords", JSON.stringify(financeRecords));
+        originalSetItem.call(localStorage, "expenses", JSON.stringify(expenses));
+        originalSetItem.call(localStorage, "books", JSON.stringify(books));
+        originalSetItem.call(localStorage, "schedule", JSON.stringify(schedule));
+        originalSetItem.call(localStorage, "monthlyPayments", JSON.stringify(window.monthlyPayments));
+        window.isIncomingSync = false;
 
-            if (!pushRes.ok) throw new Error("Firebase push error");
-
-            // بعد نجاح الرفع للفايربيز، نصفر سجل المحذوفات المؤقت
-            window.deletedItemsRegistry = { students:[], groups:[], sessions:[], exams:[], homeworks:[], expenses:[], books:[], schedule:[] };
-            originalSetItem.call(localStorage, "deletedItemsRegistry", JSON.stringify(window.deletedItemsRegistry));
-            window.hasPendingOfflineChanges = false;
-            originalSetItem.call(localStorage, "hasPendingOfflineChanges", "false");
-        }
-
+        window.isInitialCloudLoadDone = true;
         updateNetworkBadgeUI("online");
-        refreshVisibleViewsAfterSync();
+
+        // تحديث الواجهة المفتوحة فوراً
+        if (document.getElementById("total-students")) document.getElementById("total-students").innerText = students.length;
+        if (document.getElementById("total-groups")) document.getElementById("total-groups").innerText = groups.length;
+        if (document.getElementById("dashboard-view")?.style.display !== "none" && typeof renderDashboardCharts === "function") renderDashboardCharts();
+        if (document.getElementById("students-overview")?.style.display === "block" && typeof renderTable === "function") renderTable();
+        if (document.getElementById("groups-overview")?.style.display === "block" && typeof renderGroupCards === "function") renderGroupCards();
+        if (document.getElementById("sessions-overview")?.style.display === "block" && typeof renderSessionCards === "function") renderSessionCards();
 
     } catch (err) {
-        console.error("Sync Error Details:", err);
+        console.error("Fast Load Error:", err);
+        window.isInitialCloudLoadDone = true;
         updateNetworkBadgeUI(navigator.onLine ? "online" : "offline");
     } finally {
         window.isSyncingNow = false;
     }
 };
 
-window.syncDataToBot = () => window.smartTwoWaySync(true);
+window.syncDataToBot = () => window.fastCloudPush();
 window.loadDataFromFirebase = () => window.smartTwoWaySync(false);
 // ==========================================
 // 5. إدارة الجدول الأسبوعي (النسخة المرنة الديناميكية)
@@ -11862,4 +11796,112 @@ window.processOctoAiBrain = async function(rawInput) {
     }
 
     return `🤖 لم أفهم الأمر بدقة يا مستر! اضغط على <button class="ai-quick-btn" onclick="executeQuickAiCommand('كل الاوامر')">📖 كتالوج الأوامر</button> لترى كل ما يمكنني تنفيذه لك تلقائياً.`;
+};
+
+// =========================================================
+// 🚀 مسرع الأداء الفائق (يمنع تهنيج المتصفح عند إضافة طالب أو فتح الجداول)
+// =========================================================
+
+// 1. تسريع رسم جدول الطلاب (يرسم أول 100 طالب فوراً والباقي عند البحث لتفادي تجميد الشاشة)
+window.renderTable = function(customList = null) {
+    const tbody = document.getElementById("students-list");
+    if (!tbody) return;
+
+    const listToRender = customList || students || [];
+    if (listToRender.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 30px; color: var(--text-muted); font-weight: bold;">لا يوجد طلاب مسجلين حالياً.</td></tr>`;
+        return;
+    }
+
+    // عرض أحدث 120 طالباً في النظرة العامة لسرعة 60fps، وعند البحث يظهر أي طالب في النظام فوراً
+    const sliceLimit = customList ? customList.length : 120;
+    const displayList = listToRender.slice(-sliceLimit).reverse();
+
+    let rowsHtml = "";
+    for (let i = 0; i < displayList.length; i++) {
+        const s = displayList[i];
+        if (!s) continue;
+        const suspendBadge = s.isSuspended ? `<span style="background:#ef4444; color:#fff; font-size:10px; padding:2px 6px; border-radius:6px; margin-right:6px;">موقوف</span>` : "";
+        const specialBadge = s.isSpecialCase ? `<span title="حالة خاصة">⭐</span>` : "";
+        rowsHtml += `
+        <tr>
+            <td><strong style="color: var(--primary-color);">${s.code}</strong></td>
+            <td style="font-weight: bold;">${s.name} ${specialBadge} ${suspendBadge}</td>
+            <td>${s.level || "---"}</td>
+            <td><span class="status-badge status-none">${s.group || "بدون مجموعة"}</span></td>
+            <td>
+                <button class="enter-btn" style="padding: 6px 14px; font-size: 13px; width: auto;" onclick="openStudentProfile('${s.code}')">👤 الملف</button>
+            </td>
+        </tr>`;
+    }
+
+    if (!customList && listToRender.length > sliceLimit) {
+        rowsHtml += `<tr><td colspan="5" style="text-align:center; padding:12px; color:var(--text-muted); font-size:12px; font-weight:bold;">⚡ يتم عرض أحدث ${sliceLimit} طالباً لسرعة التصفح — استخدم مربع البحث بالأعلى للوصول لأي طالب من الـ ${listToRender.length} فوراً.</td></tr>`;
+    }
+
+    tbody.innerHTML = rowsHtml;
+};
+
+// 2. تسريع البحث ليبحث في الـ 1000 طالب في جزء من الثانية
+window.searchStudent = function() {
+    const q = (document.getElementById("searchInput")?.value || "").trim();
+    if (!q) {
+        window.renderTable();
+        return;
+    }
+    const normQ = window.smartArabicNormalize(q);
+    const filtered = (students || []).filter(s => 
+        s && (
+            String(s.code).toLowerCase().includes(q.toLowerCase()) ||
+            String(s.phone || "").includes(q) ||
+            String(s.parentPhone || "").includes(q) ||
+            window.smartArabicNormalize(s.name).includes(normQ) ||
+            window.smartArabicNormalize(s.group).includes(normQ)
+        )
+    );
+    window.renderTable(filtered);
+};
+
+// 3. إيقاف فحص سيرفر الواتساب في الخلفية إلا عندما تكون نافذة إعدادات السيرفر مفتوحة فعلياً
+const origCheckWa = window.checkWaServerStatusNow;
+window.checkWaServerStatusNow = async function() {
+    const modal = document.getElementById("settingsModal");
+    if (!modal || modal.style.display !== "block") return; // لا ترسل طلبات خلفية طالما المودال مغلق!
+    if (origCheckWa) return origCheckWa();
+};
+
+// 4. تصحيح رابط المسح الشامل لنسخة القيصر
+const origManageClear = window.manageClearAction;
+window.manageClearAction = async function(type) {
+    const enteredPin = prompt("⚠️ تنبيه أمني حساس!\nالرجاء إدخال الرقم السري للإدارة (Admin PIN) لتأكيد الحذف:");
+    if (enteredPin === null) return;
+    if (enteredPin !== (localStorage.getItem("adminPin") || "1234")) {
+        return showToast("الرقم السري غير صحيح!", "error");
+    }
+    const dbUrl = `https://saad-62e70-default-rtdb.europe-west1.firebasedatabase.app/AlQaisar_System/data.json`;
+    window.isIncomingSync = true;
+    try {
+        if (type === "students") {
+            students = []; localStorage.setItem("students", "[]");
+            await fetch(dbUrl, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ students: [] }) });
+            showToast("تم مسح جميع الطلاب بنجاح 🗑️");
+        } else if (type === "groups") {
+            groups = []; students.forEach(s => s.group = "");
+            localStorage.setItem("groups", "[]"); localStorage.setItem("students", JSON.stringify(students));
+            await fetch(dbUrl, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ groups: [], students }) });
+            showToast("تم مسح جميع المجموعات 🗑️");
+        } else if (type === "all") {
+            students = []; groups = []; classSessions = []; exams = []; homeworks = []; financeRecords = {}; expenses = []; schedule = []; books = []; window.monthlyPayments = {};
+            ["students","groups","classSessions","exams","homeworks","expenses","schedule","books"].forEach(k => localStorage.setItem(k, "[]"));
+            await fetch(dbUrl, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ students:[], groups:[], classSessions:[], exams:[], homeworks:[], financeRecords:{}, expenses:[], schedule:[], books:[], monthlyPayments:{} }) });
+            showToast("💥 تم تصفير النظام بالكامل بنجاح");
+        }
+        window.renderTable();
+        if (typeof renderGroupCards === "function") renderGroupCards();
+        if (typeof renderSessionCards === "function") renderSessionCards();
+    } catch (e) {
+        showToast("خطأ في الاتصال بالسحابة", "error");
+    } finally {
+        window.isIncomingSync = false;
+    }
 };

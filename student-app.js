@@ -271,14 +271,31 @@ async function fetchStudentData(isAutoLogin = false) {
             }
         }
 
-        let res = await fetch(`https://saad-62e70-default-rtdb.europe-west1.firebasedatabase.app/${globalTeacherId}/data.json`);
-        let data = await res.json() || {};
+        // 1. جلب البيانات من data ودمج platformData احتياطياً لو الطلاب محفوظين هناك
+        let [res, platRes] = await Promise.all([
+            fetch(`https://saad-62e70-default-rtdb.europe-west1.firebasedatabase.app/${globalTeacherId}/data.json`),
+            fetch(`https://saad-62e70-default-rtdb.europe-west1.firebasedatabase.app/${globalTeacherId}/platformData.json`)
+        ]);
+        let rawData = await res.json() || {};
+        let platData = await platRes.json() || {};
 
-        let safeStudents = Array.isArray(data.students) ? data.students : Object.values(data.students || {}).filter(i => i !== null);
-        let safeGroups = Array.isArray(data.groups) ? data.groups : Object.values(data.groups || {}).filter(i => i !== null);
-        let safeClassSessions = Array.isArray(data.classSessions) ? data.classSessions : Object.values(data.classSessions || {}).filter(i => i !== null);
-        let safeExams = Array.isArray(data.exams) ? data.exams : Object.values(data.exams || {}).filter(i => i !== null);
-        let safeHomeworks = Array.isArray(data.homeworks) ? data.homeworks : Object.values(data.homeworks || {}).filter(i => i !== null);
+        // دمج البيانات بحيث يقرأ الطلاب سواء كانوا في data أو platformData
+        let data = {
+            ...platData,
+            ...rawData,
+            students: rawData.students || platData.students || (platData.data && platData.data.students) || {},
+            groups: rawData.groups || platData.groups || (platData.data && platData.data.groups) || {},
+            classSessions: rawData.classSessions || platData.classSessions || {},
+            exams: rawData.exams || platData.exams || {},
+            homeworks: rawData.homeworks || platData.homeworks || {},
+            onlineExams: rawData.onlineExams || platData.onlineExams || []
+        };
+
+        let safeStudents = Array.isArray(data.students) ? data.students.filter(Boolean) : Object.values(data.students || {}).filter(Boolean);
+        let safeGroups = Array.isArray(data.groups) ? data.groups.filter(Boolean) : Object.values(data.groups || {}).filter(Boolean);
+        let safeClassSessions = Array.isArray(data.classSessions) ? data.classSessions.filter(Boolean) : Object.values(data.classSessions || {}).filter(Boolean);
+        let safeExams = Array.isArray(data.exams) ? data.exams.filter(Boolean) : Object.values(data.exams || {}).filter(Boolean);
+        let safeHomeworks = Array.isArray(data.homeworks) ? data.homeworks.filter(Boolean) : Object.values(data.homeworks || {}).filter(Boolean);
 
         window.allClassSessions = safeClassSessions;
 
@@ -289,14 +306,35 @@ async function fetchStudentData(isAutoLogin = false) {
         else window.allLectures = Object.values(lecturesData).filter(l => l !== null).reverse();
 
         if (safeStudents.length === 0) {
-            errorMsg.style.display = "block"; errorMsg.innerText = "لا يوجد طلاب مسجلين!";
+            errorMsg.style.display = "block"; errorMsg.innerText = "لا يوجد طلاب مسجلين في قاعدة البيانات!";
             if(btn) { btn.innerHTML = "تسجيل الدخول 🚀"; btn.disabled = false; }
             return;
         }
 
-        currentStudent = safeStudents.find(s => s && String(s.code).trim() === String(code).trim() && String(s.parentPhone).trim() === String(phone).trim());
+        // دالة لتوحيد صيغة أرقام الهواتف (إزالة المسافات وإضافة الصفر لو محذوف)
+        const normalizePhone = (p) => {
+            let clean = String(p || '').replace(/\D/g, '');
+            if (clean.length === 10 && clean.startsWith('1')) clean = '0' + clean;
+            if (clean.length === 12 && clean.startsWith('20')) clean = '0' + clean.substring(2);
+            return clean;
+        };
+
+        const normalizeCode = (c) => String(c || '').trim().toUpperCase();
+
+        const inputCode = normalizeCode(code);
+        const inputPhone = normalizePhone(phone);
+
+        // البحث الذكي: يطابق الكود (بدون حساسية لحالة الأحرف) + يقبل رقم ولي الأمر أو رقم الطالب الشخصي
+        currentStudent = safeStudents.find(s => {
+            if (!s) return false;
+            let sCode = normalizeCode(s.code || s.id);
+            if (sCode !== inputCode) return false;
+
+            let pPhone = normalizePhone(s.parentPhone);
+            let sPhone = normalizePhone(s.phone);
+            return (pPhone && pPhone === inputPhone) || (sPhone && sPhone === inputPhone);
+        });
         window.currentStudent = currentStudent;
-        
         if (!currentStudent) {
             errorMsg.style.display = "block"; errorMsg.innerText = "البيانات غير مسجلة!";
             if(btn) { btn.innerHTML = "تسجيل الدخول 🚀"; btn.disabled = false; }
